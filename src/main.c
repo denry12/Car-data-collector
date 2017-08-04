@@ -14,17 +14,19 @@
 #include "diag/Trace.h"
 
 #include "Timer.h"
+#include "main.h"
 //#include "BlinkLed.h"
 #include "stm32f10x_usart.h"
 #include "stm32f10x_flash.h"
+#include "stm32f10x_tim.h"
 
 
-#define EMB_BL_SP_ADDR 			(0x1FFFF000)	// Embedded bootloader address
-#define EMB_BL_ADDR_OFFSET		(0x00000004)	// Embedded bootloader reset vector offset (relative to address)
+//#define EMB_BL_SP_ADDR 			(0x1FFFF000)	// Embedded bootloader address
+//#define EMB_BL_ADDR_OFFSET		(0x00000004)	// Embedded bootloader reset vector offset (relative to address)
 
 //required to put quotation marks around defines
-#define DEF2STR(x) #x
-#define STR(x) DEF2STR(x)
+//#define DEF2STR(x) #x
+//#define STR(x) DEF2STR(x)
 
 
 // ----------------------------------------------------------------------------
@@ -58,8 +60,8 @@
 // ----- Timing definitions -------------------------------------------------
 
 // Keep the LED on for 2/3 of a second.
-#define BLINK_ON_TICKS  (TIMER_FREQUENCY_HZ * 1 / 10)
-#define BLINK_OFF_TICKS (TIMER_FREQUENCY_HZ - BLINK_ON_TICKS)
+//#define BLINK_ON_TICKS  (TIMER_FREQUENCY_HZ * 1 / 10)
+//#define BLINK_OFF_TICKS (TIMER_FREQUENCY_HZ - BLINK_ON_TICKS)
 
 // ----- main() ---------------------------------------------------------------
 
@@ -366,12 +368,44 @@ bool init_uart_extension(){
 }
 
 bool init_speed(){
+	/*
+	// set up input capture on T3C1 (PB4)
+	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);
+	GPIO_InitTypeDef GPIO_InitStructure;
+	GPIO_InitStructure.GPIO_Pin = (GPIO_Pin_4);
+	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;
+	GPIO_Init(GPIOB, &GPIO_InitStructure);
 
+	// time to set up upcounting counter/timer
+	// falling level on pin generates interrupt and resets counter
+	TIM_ICInitTypeDef T3InitStruct;
+	T3InitStruct.TIM_Channel = TIM_Channel_1;
+	T3InitStruct.TIM_ICPolarity = TIM_ICPolarity_Falling;
+	T3InitStruct.TIM_ICSelection = TIM_ICSelection_DirectTI;
+	T3InitStruct.TIM_ICPrescaler = TIM_ICPSC_DIV8; //CAPTURE DONE EVERY 8 EVENTS!?
+	// invalid-> // div x from (72M / AHB (1) / APB1 (2) = 36 MHz)
+	T3InitStruct.TIM_ICFilter = 0b0001; // idk, 2 samples I think?
+	TIM_ICInit(TIM3, T3InitStruct);
+
+	// enable interrupt
+	 */
 	return 0;
 }
 
 bool init_tacho(){
+	/*
+	// set up input capture on T2C2 (PB5)
+	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);
+	GPIO_InitTypeDef GPIO_InitStructure;
+	GPIO_InitStructure.GPIO_Pin = (GPIO_Pin_5);
+	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;
+	GPIO_Init(GPIOB, &GPIO_InitStructure);
 
+	// time to set up upcounting counter/timer
+	// falling level on pin generates interrupt and resets counter
+	 */
 	return 0;
 }
 
@@ -411,6 +445,7 @@ bool init_adc(){
 }
 
 bool get_speed(uint16_t *speed){ //returned in km/h //I prolly won't go over 255 km/h but nice to have spare
+
 #ifdef FAKE_RESULTS
 	speed = 123;
 	return 0;
@@ -421,6 +456,7 @@ bool get_speed(uint16_t *speed){ //returned in km/h //I prolly won't go over 255
 }
 
 bool get_tacho(uint16_t *rpm){ //returned in RPM
+
 #ifdef FAKE_RESULTS
 	rpm = 6666;
 	return 0;
@@ -431,6 +467,7 @@ bool get_tacho(uint16_t *rpm){ //returned in RPM
 }
 
 bool get_batteryvolt(uint16_t *volt){ //returned in mV
+
 #ifdef FAKE_RESULTS
 	volt = 1234;
 	return 0;
@@ -461,7 +498,7 @@ bool get_batteryvolt(uint16_t *volt){ //returned in mV
 
 	voltCalc = (ADC1->DR)&0xFFFF; // only lower half of 32bit register
 
-	//convert bits to mV
+	// convert bits to mV
 	// adc vref is 3300mV
 	// voltdiv has upper 10k, lower 2k2 (22 / 122 = 11 / 61)
 
@@ -473,15 +510,71 @@ bool get_batteryvolt(uint16_t *volt){ //returned in mV
 	return 0;
 }
 
+void eternalRPM_VSS_monitor(){
+	// loop monitoring VSS and RPM
+
+
+	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);
+	GPIO_InitTypeDef GPIO_InitStructure;
+	// VSS
+	GPIO_InitStructure.GPIO_Pin = (GPIO_Pin_4);
+	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;
+	GPIO_Init(GPIOB, &GPIO_InitStructure);
+
+	// RPM
+	GPIO_InitStructure.GPIO_Pin = (GPIO_Pin_5);
+	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;
+	GPIO_Init(GPIOB, &GPIO_InitStructure);
+
+	bool vssReported=1; //1 cause they are high idle
+	bool rpmReported=1; //1 cause they are high idle
+
+	UART_sendstring(USB_UART, "VSS&RPM monitor loop start\r\n");
+
+	while(1){
+		if(GPIO_ReadInputDataBit(GPIOB, GPIO_Pin_4)){
+			//vss high
+			if (vssReported == 0) {
+				vssReported = 1;
+				//send UART
+				UART_sendint(USB_UART, HAL_GetTick());
+				UART_sendstring(USB_UART, " VSS\r\n");
+			}
+		} else {
+			//vss low
+			if (vssReported) {
+				vssReported = 0;
+			}
+		}
+
+		if(GPIO_ReadInputDataBit(GPIOB, GPIO_Pin_5)){
+			//rpm high
+			if (rpmReported == 0) {
+				rpmReported = 1;
+				//send UART
+				UART_sendint(USB_UART, HAL_GetTick());
+				UART_sendstring(USB_UART, " RPM\r\n");
+			}
+		} else {
+			//rpm low
+			if (rpmReported) {
+				rpmReported = 0;
+			}
+		}
+	}
+}
+
 int main(int argc, char* argv[])
 {
 	//these three functions are holy and may not be modified
-	//must be first things in main
-	//clock needs to be set first ofc
+	//must be first things in main.	clock needs to be set first ofc
 	HAL_InitTick();
 	init_uart_usb();
 	checkForUpdateRequest();
 	//holy part over, free for all now
+
 
 	uint16_t batteryVoltage_mV;
 
@@ -507,6 +600,9 @@ int main(int argc, char* argv[])
 		UART_sendint(USB_UART, batteryVoltage_mV);
 		UART_sendstring(USB_UART, " mV\r\n");
 	}
+
+
+	eternalRPM_VSS_monitor();
 
   eternalUSBUART_loopback();
 
