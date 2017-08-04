@@ -13,17 +13,17 @@
 
 #define TIMER_FREQUENCY_HZ (1000u)
 
-//typedef uint32_t timer_ticks_t;
+typedef uint32_t timer_ticks_t;
 
 uint32_t uwTick;
 
-//extern volatile timer_ticks_t timer_delayCount;
+extern volatile timer_ticks_t timer_delayCount;
 
 //extern void
 //timer_start (void);
 
-//extern void
-//timer_sleep (timer_ticks_t ticks);
+extern void
+timer_sleep (timer_ticks_t ticks);
 
 extern void HAL_InitTick(void);
 

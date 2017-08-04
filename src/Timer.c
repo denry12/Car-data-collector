@@ -13,7 +13,7 @@ void HAL_IncTick(void);
 #endif
 
 // Forward declarations.
-/*
+
 void
 timer_tick (void);
 
@@ -22,14 +22,14 @@ timer_tick (void);
 volatile timer_ticks_t timer_delayCount;
 
 // ----------------------------------------------------------------------------
-
+/*
 void
 timer_start (void)
 {
   // Use SysTick as reference for the delay loops.
   SysTick_Config (SystemCoreClock / TIMER_FREQUENCY_HZ);
 }
-
+*/
 void
 timer_sleep (timer_ticks_t ticks)
 {
@@ -49,7 +49,7 @@ timer_tick (void)
       --timer_delayCount;
     }
 }
-*/
+
 
 // ----- SysTick_Handler() ----------------------------------------------------
 
@@ -77,7 +77,7 @@ SysTick_Handler (void)
 #if defined(USE_HAL_DRIVER)
   HAL_IncTick();
 #endif
-  //timer_tick ();
+  timer_tick ();
   HAL_IncTick ();
 }
 

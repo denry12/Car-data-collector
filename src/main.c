@@ -16,6 +16,16 @@
 #include "Timer.h"
 //#include "BlinkLed.h"
 #include "stm32f10x_usart.h"
+#include "stm32f10x_flash.h"
+
+
+#define EMB_BL_SP_ADDR 			(0x1FFFF000)	// Embedded bootloader address
+#define EMB_BL_ADDR_OFFSET		(0x00000004)	// Embedded bootloader reset vector offset (relative to address)
+
+//required to put quotation marks around defines
+#define DEF2STR(x) #x
+#define STR(x) DEF2STR(x)
+
 
 // ----------------------------------------------------------------------------
 //
@@ -62,8 +72,8 @@
 
 
 
-#define FAKE_RESULTS 1 //for debugging purposes, returns some random values
-#define USBUART_EVENPARITY //if commented out, even parity disabled (no parity used)
+//#define FAKE_RESULTS //for debugging purposes, returns some random values
+//#define USBUART_EVENPARITY //if commented out, even parity disabled (no parity used)
 
 USART_TypeDef *USB_UART = USART1;
 
@@ -106,8 +116,7 @@ bool init_uart_usb(){
 #ifdef USBUART_EVENPARITY
 		USB_UART_Init.USART_WordLength = USART_WordLength_9b;
 		USB_UART_Init.USART_Parity = USART_Parity_Even; // to be compatible with bootloader
-#endif
-#ifndef USBUART_EVENPARITY
+#else
 		USB_UART_Init.USART_WordLength = USART_WordLength_8b;
 		USB_UART_Init.USART_Parity = USART_Parity_No;
 #endif
@@ -122,10 +131,6 @@ bool init_uart_usb(){
 //			//Error_Handler();
 //			while (1);
 //		}
-
-
-
-
 
 		//set up GPIOs to UART, PA10 as Rx
 
@@ -165,8 +170,118 @@ bool init_uart_usb(){
 	return 0; //success
 }
 
-void checkForUpdateRequest(){
+bool UART_sendstring(USART_TypeDef *UARTx, char *string){
+	int i = 0;
 
+	while(string[i] != 0){
+		while(!(UARTx->SR & USART_SR_TXE));
+		USART_SendData(UARTx, (uint16_t)(string[i]));
+		i++;
+	}
+	return 0;
+}
+
+bool UART_sendint(USART_TypeDef *UARTx, uint32_t value){
+	char string[15]; //allowing for 32bits nicely
+	itoa(value, string, 10);
+	UART_sendstring(UARTx, string);
+	return 0;
+}
+
+
+void checkForUpdateRequest(){
+	UART_sendstring(USB_UART, "\r\nPress b to enter emb. bootloader... ");
+	const uint32_t timeToEnter = 1000;
+	char lastUARTchar;
+	uint32_t timestamp = HAL_GetTick();
+
+	while((HAL_GetTick() - timestamp) <= timeToEnter){
+		if(USB_UART->SR & USART_SR_RXNE){ //has data
+			lastUARTchar = USB_UART->DR;
+			if(lastUARTchar == 'b'){ //check if right character
+				//enter embedded bootloader!
+
+				//SystemCoreClock = HSI_VALUE;
+				//SystemCoreClockUpdate();
+
+				// if still no work, mby get more tips here https://stm32f4-discovery.net/2017/04/tutorial-jump-system-memory-software-stm32/
+				// turns out that tutorial is useless for me, it required boot bits (not available for stm32f1)
+				// Much better were instructions where they mention doing it with backup registers and reset
+
+				UART_sendstring(USB_UART, "Entering in 3 sec ");
+				timer_sleep(1000);
+				UART_sendstring(USB_UART, ".");
+				timer_sleep(1000);
+				UART_sendstring(USB_UART, ".");
+				timer_sleep(1000);
+				UART_sendstring(USB_UART, ".\r\n");
+
+				//start of alternative try
+				/*void (*SysMemBootJump)(void);
+				volatile uint32_t addr = EMB_BL_SP_ADDR;
+				//	Step: Disable RCC, set it to default (after reset) settings
+				//	Internal clock, no PLL, etc.
+				RCC_DeInit();
+				SysTick->CTRL = 0;
+				SysTick->LOAD = 0;
+				SysTick->VAL = 0;
+				__disable_irq();
+				//memory remap should be done here, not option for stm32f1?
+				SysMemBootJump = (void (*)(void)) (*((uint32_t *)(addr + 4)));
+				__set_MSP(*(uint32_t *)addr);
+				SysMemBootJump();*/
+
+				// ok trying to enter @ boot
+				RCC->APB1ENR |= RCC_APB1ENR_PWREN; //enable clock to power interface
+				RCC->APB1ENR |= RCC_APB1ENR_BKPEN; //enable clock to BKP
+				PWR->CR |= PWR_CR_DBP; //allow writing to RTC & backup registers
+				BKP->DR1 = 0x0BAD;
+				BKP->DR2 = 0xC0DE;
+				NVIC_SystemReset();
+				PWR->CR &= ~((uint32_t)(PWR_CR_DBP)); //forbid writing to RTC & backup registers
+
+				//end of alternative try
+
+				//		step: Disable RCC, set it to default (after reset) settings
+				/* //Internal clock, no PLL, etc.
+						RCC_DeInit();
+
+				//unlock flash
+				FLASH_Status flashHaxResult;
+				FLASH_Unlock();
+				//if(FLASH_GetReadOutProtectionStatus()){
+				flashHaxResult = FLASH_ReadOutProtection(DISABLE);
+				//}
+
+
+				FLASH_ClearFlag(FLASH_FLAG_EOP);
+				FLASH->CR &= ~(0x00000200); //clear OPTWRE
+				FLASH->AR = 0; //set AR to 0
+				// FLASH_SetLatency(FLASH_Latency_0); //this stops comm with flashloader, prolly cause mcu runs at 72
+				FLASH_Lock();
+
+
+				//#define EMB_BL_SP_ADDR 			(0x1FFFF000)	// Embedded bootloader address
+				//#define EMB_BL_ADDR_OFFSET		(0x00000004)	// Embedded bootloader reset vector offset (relative to address)
+				//required to put quotation marks around defines
+				//#define DEF2STR(x) #x
+				//#define STR(x) DEF2STR(x)
+
+				//perform the jump
+				//stack pointer initial value to stack pointer
+				asm volatile("ldr r0, =" STR(EMB_BL_SP_ADDR));
+				asm volatile("ldr r0, [r0]");  //not sure why, but this line is very necessary
+				asm volatile("mov sp, r0");
+
+				//reset vector address to program counter
+				asm volatile("ldr r0, =" STR(EMB_BL_SP_ADDR + EMB_BL_ADDR_OFFSET));
+				asm volatile("ldr r0, [r0]"); //not sure why, but this line is very necessary
+				asm volatile("mov pc, r0");*/
+			}
+		}
+	}
+
+	UART_sendstring(USB_UART, "\r\nLoading app.\r\n");
 	return;
 }
 
@@ -180,25 +295,7 @@ bool init_pc13_led(){
 	return 0;
 }
 
-bool UART_sendstring(USART_TypeDef *UARTx, char *string){
-	int i = 0;
 
-	while(string[i] != 0){
-		while(!(UARTx->SR & USART_SR_TXE));
-		USART_SendData(UARTx, (uint16_t)(string[i]));
-		i++;
-	}
-
-	//USART_SendData(UARTx, (uint16_t)(string));
-	return 0;
-}
-
-bool UART_sendint(USART_TypeDef *UARTx, uint32_t value){
-	char string[15]; //allowing for 32bits nicely
-	itoa(value, string, 10);
-	UART_sendstring(UARTx, string);
-	return 0;
-}
 
 void eternalUSBUART_loopback(){
 	uint32_t timestamp = HAL_GetTick();
@@ -210,7 +307,7 @@ void eternalUSBUART_loopback(){
 	//uint16_t uartchar16;
 	//char uartchar;
 
-	UART_sendstring(USB_UART, "\r\nLoopback\r\n");
+	UART_sendstring(USB_UART, "Loopback\r\n");
 
 //	USART_SendData(USB_UART, 'L');
 //	while(!(USB_UART->SR & USART_SR_TXE));
@@ -279,41 +376,121 @@ bool init_tacho(){
 }
 
 bool init_adc(){
+	// NB, ADC clock must not exceed 14 MHz
+	// If SysClk = 72 MHz
+	// For AHBclk: Div SysClk by 1 (AHB Prescaler(HPRE)=0) to get 72 MHz
+	// For APB2: Div PCLK by 1 (APB2 Prescaler(PPRE2)=0) to get 72 MHz
+	// For ADC: Div APB2 by 8 (ADCPRE=0b11) to get 9 MHz
+	RCC->CFGR |= (RCC_CFGR_ADCPRE_0 | RCC_CFGR_ADCPRE_1);
+
+	//RCC->APB2ENR &= ~((uint32_t)(RCC_APB2ENR_ADC1EN)); //enable clock
+	//RCC->APB2ENR &= ~((uint32_t)(RCC_APB2ENR_ADC2EN));
+	//RCC->APB2RSTR &= ~((uint32_t)(RCC_APB2RSTR_ADC1RST)); //remove reset
+	//RCC->APB2RSTR &= ~((uint32_t)(RCC_APB2RSTR_ADC2RST));
+	//now same as before just shorter??
+	RCC_APB2PeriphClockCmd(RCC_APB2Periph_ADC1, ENABLE);
+	ADC_DeInit(ADC1);
+
+	ADC_Cmd(ADC1, ENABLE);
+	// wake up ADC1 (master)
+	ADC1->CR2 |= (ADC_CR2_ADON); //set ADON bit
+
+	// batteryvolt in
+	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA, ENABLE);
+	GPIO_InitTypeDef GPIO_InitStructure;
+	GPIO_InitStructure.GPIO_Pin = (GPIO_Pin_1);
+	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+	//GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;
+	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AIN; //is this analog in or alternative in
+	GPIO_Init(GPIOA, &GPIO_InitStructure);
+
+	// set conversion time to max, 239.5 cycles
+	ADC1->SMPR2 |= (ADC_SMPR2_SMP1_2 |ADC_SMPR2_SMP1_1 | ADC_SMPR2_SMP1_0);
 
 	return 0;
 }
 
 bool get_speed(uint16_t *speed){ //returned in km/h //I prolly won't go over 255 km/h but nice to have spare
+#ifdef FAKE_RESULTS
+	speed = 123;
+	return 0;
+#endif
+
 
 	return 0;
 }
 
 bool get_tacho(uint16_t *rpm){ //returned in RPM
+#ifdef FAKE_RESULTS
+	rpm = 6666;
+	return 0;
+#endif
+
 
 	return 0;
 }
 
 bool get_batteryvolt(uint16_t *volt){ //returned in mV
+#ifdef FAKE_RESULTS
+	volt = 1234;
+	return 0;
+#endif
+
+	uint32_t voltCalc;
+
+	//set adc channel to AD1_1
+
+	//ADC1->CR1 |= ADC_CR1_DISCNUM_0; //perform just one measurement
+	// set sequence
+	ADC1->SQR1 &= ((uint32_t)(ADC_SQR1_L_3 | ADC_SQR1_L_2 | ADC_SQR1_L_1 | ADC_SQR1_L_0)); //L bits to be total seq length to be 1
+	//ADC1->SQR2;
+	ADC1->SQR3 &= ~((uint32_t)(0x3FFFFFFF)); // clear all sequence items
+	ADC1->SQR3 |= (1 & ADC_SQR3_SQ1); //set ch 1 to be first conversion
+
+	//read out if some crap in there already. It appears this is essential
+	voltCalc = (ADC1->DR)&0xFFFF; // only lower half of 32bit register
+
+	//perform conversion on ADC1 (master)
+	ADC1->CR2 |= (ADC_CR2_EXTSEL_2 | ADC_CR2_EXTSEL_1 | ADC_CR2_EXTSEL_0); //set trigger to be SW
+	ADC1->CR2 |= (ADC_CR2_SWSTART); //set SWSTART bit
+	ADC1->CR2 |= (ADC_CR2_ADON); //set ADON bit
+
+
+	//wait for conversion to finish
+	while(!(ADC1->SR & ADC_SR_EOC)); // todo: add timeout
+
+	voltCalc = (ADC1->DR)&0xFFFF; // only lower half of 32bit register
+
+	//convert bits to mV
+	// adc vref is 3300mV
+	// voltdiv has upper 10k, lower 2k2 (22 / 122 = 11 / 61)
+
+	voltCalc = voltCalc * 61 * 3300; // voltCalc can be up to 21336 for OK calc. Above range of 12bit in with 32bit, all ok
+	voltCalc = voltCalc / (11 * 0xFFF);
+
+	*volt = voltCalc;
 
 	return 0;
 }
 
 int main(int argc, char* argv[])
 {
-	//these two functions are holy and may not be modified
+	//these three functions are holy and may not be modified
 	//must be first things in main
-  //clock needs to be set first ofc
+	//clock needs to be set first ofc
+	HAL_InitTick();
 	init_uart_usb();
 	checkForUpdateRequest();
 	//holy part over, free for all now
 
+	uint16_t batteryVoltage_mV;
+
 	// Send a greeting to the trace device (skipped on Release).
-  trace_puts("Hello ARM World!");
-  HAL_InitTick();
-  init_pc13_led();
-  // At this stage the system clock should have already been configured
-  // at high speed.
-  trace_printf("System clock: %u Hz\n", SystemCoreClock);
+	//trace_puts("Hello ARM World!");
+	init_pc13_led();
+	// At this stage the system clock should have already been configured
+	// at high speed.
+	//trace_printf("System clock: %u Hz\n", SystemCoreClock);
 
 
 
@@ -323,7 +500,13 @@ int main(int argc, char* argv[])
 	init_tacho();
 	init_adc();
 
-
+	if(get_batteryvolt(&batteryVoltage_mV)){
+		UART_sendstring(USB_UART, "Failed to get batteryvolt\r\n");
+	} else {
+		UART_sendstring(USB_UART, "Batteryvolt: ");
+		UART_sendint(USB_UART, batteryVoltage_mV);
+		UART_sendstring(USB_UART, " mV\r\n");
+	}
 
   eternalUSBUART_loopback();
 

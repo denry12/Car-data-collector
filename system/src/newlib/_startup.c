@@ -297,6 +297,8 @@ _start (void)
     }
 #endif
 
+  checkOnBootBLreq();
+
   // Hook to continue the initialisations. Usually compute and store the
   // clock frequency in the global CMSIS variable, cleared above.
   __initialize_hardware ();

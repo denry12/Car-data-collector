@@ -6,16 +6,19 @@
 C_SRCS += \
 ../src/Timer.c \
 ../src/_write.c \
+../src/jump2embbl.c \
 ../src/main.c 
 
 OBJS += \
 ./src/Timer.o \
 ./src/_write.o \
+./src/jump2embbl.o \
 ./src/main.o 
 
 C_DEPS += \
 ./src/Timer.d \
 ./src/_write.d \
+./src/jump2embbl.d \
 ./src/main.d 
 
 
