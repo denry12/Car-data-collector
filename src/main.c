@@ -77,7 +77,12 @@
 //#define FAKE_RESULTS //for debugging purposes, returns some random values
 //#define USBUART_EVENPARITY //if commented out, even parity disabled (no parity used)
 
-USART_TypeDef *USB_UART = USART1;
+USART_TypeDef *USB_UART = USART1; //see comment on next line.
+//USART_TypeDef *TIM_TACHO = TIM2; //unused cause RCC periph clock enable crap. Actually USART has that too. Would be neat to redefine that too?
+//USART_TypeDef *TIM_VSS = TIM3;
+
+carData_datastruct carData_latest; // most up-to-date info
+carData_datastruct carData_previousPrinted; // to verify if anything has changed since last print.
 
 bool init_uart_usb(){
 	// this example seems to be useful:
@@ -390,12 +395,85 @@ bool init_speed(){
 
 	// enable interrupt
 	 */
+
+
+
+	// Run timer all the time and get timer value when GPIO interrupt fire
+
+	// Set up GPIO and interrupt
+
+	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);
+	GPIO_InitTypeDef GPIO_InitStructure;
+	GPIO_InitStructure.GPIO_Pin = (GPIO_Pin_4);
+	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;
+	GPIO_Init(GPIOB, &GPIO_InitStructure);
+
+	// time to set up upcounting counter/timer
+	// falling level on pin generates interrupt and resets counter
+
+	// If SysClk = 72 MHz
+	// For AHBclk: Div SysClk by 1 (AHB Prescaler(HPRE)=0) to get 72 MHz
+	// For APB1: Div PCLK by 2 (APB Prescaler(PPRE1)=0x4) to get 36 MHz (cannot exceed 36MHz)
+	// For TIMxCLK: Multiply! APB1 by 2 (APB1 prescaler != 1) to get 72 MHz
+
+	RCC_APB1PeriphResetCmd(RCC_APB1Periph_TIM3, DISABLE);
+	RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM3, ENABLE);
+
+	/*TIM_TimeBaseInitTypeDef TimeBase;
+	TimeBase->TIM_ClockDivision = ;
+	TimeBase->TIM_CounterMode = TIM_CounterMode_Up;
+	TimeBase->TIM_Period = TIM_;
+	TimeBase->TIM_Prescaler;
+	TimeBase->TIM_RepetitionCounter;
+	TIM_TimeBaseInit(TIM2, */
+	TIM_InternalClockConfig(TIM3); // set CK_PSC to be from CK_INT
+	TIM_PrescalerConfig(TIM3, (1080-1), TIM_PSCReloadMode_Update); // prescaler can go up to 65536. Set it so that 72 MHz turns to 66.667 kHz
+	TIM_SetClockDivision(TIM3, TIM_CKD_DIV1); //nb, this exists too.
+	TIM_SetAutoreload(TIM3, 65535); // overflow event shall set is just a little less, cause apparently our rpm/vss value is very low
+
+	TIM_UpdateRequestConfig(TIM3, TIM_UpdateSource_Global); //set urs bit to get from ARR register (under/overflow only)
+
+	// and I do not care about update event (UEV) nor update interrupt flag (UIF) nor overflow
+	TIM_CounterModeConfig(TIM3, TIM_CounterMode_Up);
+
+	//but I do want to get interrupt when PB5 is falling
+	GPIO_EXTILineConfig(GPIO_PortSourceGPIOB, GPIO_PinSource4);
+	EXTI_InitTypeDef EXTI_InitStructure;
+	EXTI_InitStructure.EXTI_Line = EXTI_Line4;    // No idea what this is related to. But works only with pin number it seems
+	EXTI_InitStructure.EXTI_Mode = EXTI_Mode_Interrupt; //Interrupt mode, optional values for the interrupt EXTI_Mode_Interrupt and event EXTI_Mode_Event.
+	EXTI_InitStructure.EXTI_Trigger = EXTI_Trigger_Falling; //Trigger mode, can be a falling edge trigger EXTI_Trigger_Falling, the rising edge triggered EXTI_Trigger_Rising, or any level (rising edge and falling edge trigger EXTI_Trigger_Rising_Falling)
+	EXTI_InitStructure.EXTI_LineCmd = ENABLE;
+	EXTI_Init(&EXTI_InitStructure);
+
+	NVIC_InitTypeDef NVIC_InitStructure;
+	NVIC_InitStructure.NVIC_IRQChannel = EXTI4_IRQn; // Related to pin number!
+	NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 0x02; //Priority 2,
+	NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0x02; //Sub priority 2
+	NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE; //Enable external interrupt channel
+	NVIC_Init(&NVIC_InitStructure);
+
+	// and enable timer overflow to avoid rollover to show false high value
+	TIM_ITConfig(TIM3, TIM_IT_Update, ENABLE);
+	NVIC_EnableIRQ(TIM3_IRQn);
+
+	TIM_Cmd(TIM3, ENABLE); //handles CR1 CREN bit.
+
+
+
+
+
+
+
 	return 0;
 }
 
 bool init_tacho(){
-	/*
-	// set up input capture on T2C2 (PB5)
+
+	// Run timer all the time and get timer value when GPIO interrupt fire
+
+	// Set up GPIO and interrupt
+
 	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);
 	GPIO_InitTypeDef GPIO_InitStructure;
 	GPIO_InitStructure.GPIO_Pin = (GPIO_Pin_5);
@@ -405,9 +483,65 @@ bool init_tacho(){
 
 	// time to set up upcounting counter/timer
 	// falling level on pin generates interrupt and resets counter
-	 */
+
+	// If SysClk = 72 MHz
+	// For AHBclk: Div SysClk by 1 (AHB Prescaler(HPRE)=0) to get 72 MHz
+	// For APB1: Div PCLK by 2 (APB Prescaler(PPRE1)=0x4) to get 36 MHz (cannot exceed 36MHz)
+	// For TIMxCLK: Multiply! APB1 by 2 (APB1 prescaler != 1) to get 72 MHz
+
+	RCC_APB1PeriphResetCmd(RCC_APB1Periph_TIM2, DISABLE);
+	RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM2, ENABLE);
+
+	/*TIM_TimeBaseInitTypeDef TimeBase;
+	TimeBase->TIM_ClockDivision = ;
+	TimeBase->TIM_CounterMode = TIM_CounterMode_Up;
+	TimeBase->TIM_Period = TIM_;
+	TimeBase->TIM_Prescaler;
+	TimeBase->TIM_RepetitionCounter;
+	TIM_TimeBaseInit(TIM2, */
+	TIM_InternalClockConfig(TIM2); // set CK_PSC to be from CK_INT
+	TIM_PrescalerConfig(TIM2, (1080-1), TIM_PSCReloadMode_Update); // prescaler can go up to 65536. Set it so that 72 MHz turns to 66.667 kHz
+	TIM_SetClockDivision(TIM2, TIM_CKD_DIV1); //nb, this exists too.
+	TIM_SetAutoreload(TIM2, 65535); // overflow event shall set is just a little less, cause apparently our rpm/vss value is very low
+
+	TIM_UpdateRequestConfig(TIM2, TIM_UpdateSource_Global); //set urs bit to get from ARR register (under/overflow only)
+
+	// and I do not care about update event (UEV) nor update interrupt flag (UIF) nor overflow
+	TIM_CounterModeConfig(TIM2, TIM_CounterMode_Up);
+
+	//but I do want to get interrupt when PB5 is falling
+	GPIO_EXTILineConfig(GPIO_PortSourceGPIOB, GPIO_PinSource5);
+	EXTI_InitTypeDef EXTI_InitStructure;
+	EXTI_InitStructure.EXTI_Line = EXTI_Line5;    // No idea what this is related to. But works only with pin number it seems
+	EXTI_InitStructure.EXTI_Mode = EXTI_Mode_Interrupt; //Interrupt mode, optional values for the interrupt EXTI_Mode_Interrupt and event EXTI_Mode_Event.
+	EXTI_InitStructure.EXTI_Trigger = EXTI_Trigger_Falling; //Trigger mode, can be a falling edge trigger EXTI_Trigger_Falling, the rising edge triggered EXTI_Trigger_Rising, or any level (rising edge and falling edge trigger EXTI_Trigger_Rising_Falling)
+	EXTI_InitStructure.EXTI_LineCmd = ENABLE;
+	EXTI_Init(&EXTI_InitStructure);
+
+	NVIC_InitTypeDef NVIC_InitStructure;
+	NVIC_InitStructure.NVIC_IRQChannel = EXTI9_5_IRQn; // Related to pin number!
+	NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 0x02; //Priority 2,
+	NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0x02; //Sub priority 2
+	NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE; //Enable external interrupt channel
+	NVIC_Init(&NVIC_InitStructure);
+
+	// and enable timer overflow to avoid rollover to show false high value
+	TIM_ITConfig(TIM2, TIM_IT_Update, ENABLE);
+	NVIC_EnableIRQ(TIM2_IRQn);
+
+
+	TIM_Cmd(TIM2, ENABLE); //handles CR1 CREN bit.
+
 	return 0;
 }
+
+/*
+// called every time value is grabbed from timer
+bool restart_tacho(){
+	// set register value to 0
+	TIM_SetCounter(TIM2, 0);
+	return 0;
+}*/
 
 bool init_adc(){
 	// NB, ADC clock must not exceed 14 MHz
@@ -444,7 +578,7 @@ bool init_adc(){
 	return 0;
 }
 
-bool get_speed(uint16_t *speed){ //returned in km/h //I prolly won't go over 255 km/h but nice to have spare
+/*bool get_speed(uint16_t *speed){ //returned in km/h //I prolly won't go over 255 km/h but nice to have spare
 
 #ifdef FAKE_RESULTS
 	speed = 123;
@@ -453,8 +587,8 @@ bool get_speed(uint16_t *speed){ //returned in km/h //I prolly won't go over 255
 
 
 	return 0;
-}
-
+}*/
+/*
 bool get_tacho(uint16_t *rpm){ //returned in RPM
 
 #ifdef FAKE_RESULTS
@@ -464,7 +598,7 @@ bool get_tacho(uint16_t *rpm){ //returned in RPM
 
 
 	return 0;
-}
+}*/
 
 bool get_batteryvolt(uint16_t *volt){ //returned in mV
 
@@ -513,6 +647,10 @@ bool get_batteryvolt(uint16_t *volt){ //returned in mV
 void eternalRPM_VSS_monitor(){
 	// loop monitoring VSS and RPM
 
+
+	uint32_t timestamp = HAL_GetTick();
+
+	const uint32_t notifydelay = 1000;
 
 	RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);
 	GPIO_InitTypeDef GPIO_InitStructure;
@@ -563,6 +701,13 @@ void eternalRPM_VSS_monitor(){
 				rpmReported = 0;
 			}
 		}
+
+		if((HAL_GetTick() - timestamp) >= notifydelay){
+			// called every 1000 ms
+			GPIO_WriteBit(GPIOC, GPIO_Pin_13, 0);
+			timestamp += notifydelay;
+		}
+
 	}
 }
 
@@ -593,6 +738,8 @@ int main(int argc, char* argv[])
 	init_tacho();
 	init_adc();
 
+	GPIO_WriteBit(GPIOC, GPIO_Pin_13, 1); // LED off
+
 	if(get_batteryvolt(&batteryVoltage_mV)){
 		UART_sendstring(USB_UART, "Failed to get batteryvolt\r\n");
 	} else {
@@ -602,9 +749,9 @@ int main(int argc, char* argv[])
 	}
 
 
-	eternalRPM_VSS_monitor();
+	//eternalRPM_VSS_monitor();
 
-  eternalUSBUART_loopback();
+  //eternalUSBUART_loopback();
 
 
 
@@ -618,6 +765,28 @@ int main(int argc, char* argv[])
   // Infinite loop
   while (1)
     {
+	  get_batteryvolt(&carData_latest.batteryValue);
+	  if(carData_previousPrinted.RPMvalue != carData_latest.RPMvalue){
+		  UART_sendint(USB_UART, HAL_GetTick());
+
+		  UART_sendstring(USB_UART, ";RPM:");
+	  UART_sendint(USB_UART, carData_latest.RPMvalue);
+
+	  UART_sendstring(USB_UART, ";VSS:");
+	  UART_sendint(USB_UART, carData_latest.VSSvalue);
+
+	  UART_sendstring(USB_UART, ";RTO:");
+	 	  UART_sendint(USB_UART, (carData_latest.RPMvalue * 1000) /carData_latest.VSSvalue);
+
+	 	 UART_sendstring(USB_UART, ";BAT:");
+	 	 	 	  UART_sendint(USB_UART, carData_latest.batteryValue);
+
+	 	  UART_sendstring(USB_UART, "\r\n");
+	 	 carData_previousPrinted = carData_latest;
+	  }
+
+
+
       //blink_led_on();
       //timer_sleep(seconds == 0 ? TIMER_FREQUENCY_HZ : BLINK_ON_TICKS);
 
@@ -630,6 +799,81 @@ int main(int argc, char* argv[])
       //trace_printf("Second %u\n", seconds);
     }
   // Infinite loop, never return.
+}
+
+
+
+
+
+
+// Interrupts
+
+void EXTI9_5_IRQHandler(void){
+	const uint32_t pulses_per_rev = 2;
+	const uint32_t pulse_duration_us = 15; // time per tick in us
+	uint32_t calculationVar;
+	GPIO_WriteBit(GPIOC, GPIO_Pin_13, 0); // LED on
+	if(EXTI_GetITStatus(EXTI_Line5)!=RESET) //Judge whether a line break
+	{
+		// tacho intterupt
+		carData_latest.RPMcounter = TIM2->CNT;
+		// set register value to 0 to measure for next pulse
+		TIM_SetCounter(TIM2, 0);
+
+		// timer counts at 66666.67 Hz. 20,000 ticks = 100 rpm; 500 ticks = 4000 rpm.
+		calculationVar = carData_latest.RPMcounter * pulse_duration_us; // t (in us)
+		calculationVar = calculationVar * pulses_per_rev; // t (in us) per rev
+		calculationVar = calculationVar / 60; // ???
+		calculationVar = 1000000 / calculationVar; // remove microsecond, get rpm value
+		carData_latest.RPMvalue = calculationVar;
+
+		// reset timer
+		EXTI_ClearITPendingBit(EXTI_Line5);   //Remove LINE interrupt flag bit
+	}
+
+
+}
+
+void EXTI4_IRQHandler(void){
+	const uint32_t pulse_duration_us = 15; // time per tick in us
+
+	// "multiply by (initial) 1.6" in two steps:
+	const uint32_t multiplier_mul = 16;
+	const uint32_t multiplier_div = 10;
+
+	uint32_t calculationVar;
+	GPIO_WriteBit(GPIOC, GPIO_Pin_13, 0); // LED on
+	if(EXTI_GetITStatus(EXTI_Line4)!=RESET) //Judge whether a line break
+	{
+		// vss
+		carData_latest.VSScounter = TIM3->CNT;
+		// set register value to 0 to prepare for next pulse
+		TIM_SetCounter(TIM3, 0);
+
+		// timer counts at 66666.67 Hz. 20,000 ticks = 100 rpm; 500 ticks = 4000 rpm.
+		calculationVar = carData_latest.VSScounter * pulse_duration_us; // t (in us)
+		calculationVar = calculationVar * multiplier_div; // apply multiplier (step 1 of 2)
+		calculationVar = calculationVar / multiplier_mul; // apply multiplier (step 2 of 2)
+		calculationVar = 1000000 / calculationVar; // perform flip, remove microsecond, get vss
+		carData_latest.VSSvalue = calculationVar;
+
+		// reset timer
+		EXTI_ClearITPendingBit(EXTI_Line4);   //Remove LINE interrupt flag bit
+	}
+}
+
+void TIM2_IRQHandler(void){
+	// rpm timer ovf
+	TIM2->CNT = 65000;
+	carData_latest.RPMvalue = 0;
+	TIM_ClearITPendingBit(TIM2, TIM_IT_Update);
+}
+
+void TIM3_IRQHandler(void){
+	// vss timer ovf
+	TIM3->CNT = 65000;
+	carData_latest.VSSvalue = 0;
+	TIM_ClearITPendingBit(TIM3, TIM_IT_Update);
 }
 
 #pragma GCC diagnostic pop
