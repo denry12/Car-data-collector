@@ -362,6 +362,8 @@ void eternalUSBUART_loopback(){
 
 }
 
+
+
 bool init_uart_gps(){
 
 	return 0;
@@ -644,6 +646,94 @@ bool get_batteryvolt(uint16_t *volt){ //returned in mV
 	return 0;
 }
 
+bool get_fuel(uint16_t *volt){ //returned in mV
+
+#ifdef FAKE_RESULTS
+	volt = 1234;
+	return 0;
+#endif
+
+	uint32_t voltCalc;
+
+	//set adc channel to AD1_0
+
+	//ADC1->CR1 |= ADC_CR1_DISCNUM_0; //perform just one measurement
+	// set sequence
+	ADC1->SQR1 &= ((uint32_t)(ADC_SQR1_L_3 | ADC_SQR1_L_2 | ADC_SQR1_L_1 | ADC_SQR1_L_0)); //L bits to be total seq length to be 1
+	//ADC1->SQR2;
+	ADC1->SQR3 &= ~((uint32_t)(0x3FFFFFFF)); // clear all sequence items
+	ADC1->SQR3 |= (0 & ADC_SQR3_SQ1); //set ch 0 to be first conversion
+
+	//read out if some crap in there already. It appears this is essential
+	voltCalc = (ADC1->DR)&0xFFFF; // only lower half of 32bit register
+
+	//perform conversion on ADC1 (master)
+	ADC1->CR2 |= (ADC_CR2_EXTSEL_2 | ADC_CR2_EXTSEL_1 | ADC_CR2_EXTSEL_0); //set trigger to be SW
+	ADC1->CR2 |= (ADC_CR2_SWSTART); //set SWSTART bit
+	ADC1->CR2 |= (ADC_CR2_ADON); //set ADON bit
+
+
+	//wait for conversion to finish
+	while(!(ADC1->SR & ADC_SR_EOC)); // todo: add timeout
+
+	voltCalc = (ADC1->DR)&0xFFFF; // only lower half of 32bit register
+
+	// convert bits to mV
+	// adc vref is 3300mV
+	// voltdiv has upper 10k, lower 2k2 (22 / 122 = 11 / 61)
+
+	voltCalc = voltCalc * 61 * 3300; // voltCalc can be up to 21336 for OK calc. Above range of 12bit in with 32bit, all ok
+	voltCalc = voltCalc / (11 * 0xFFF);
+
+	*volt = voltCalc;
+
+	return 0;
+}
+
+bool get_enginetemp(uint16_t *volt){ //returned in mV
+
+#ifdef FAKE_RESULTS
+	volt = 1234;
+	return 0;
+#endif
+
+	uint32_t voltCalc;
+
+	//set adc channel to AD1_4
+
+	//ADC1->CR1 |= ADC_CR1_DISCNUM_0; //perform just one measurement
+	// set sequence
+	ADC1->SQR1 &= ((uint32_t)(ADC_SQR1_L_3 | ADC_SQR1_L_2 | ADC_SQR1_L_1 | ADC_SQR1_L_0)); //L bits to be total seq length to be 1
+	//ADC1->SQR2;
+	ADC1->SQR3 &= ~((uint32_t)(0x3FFFFFFF)); // clear all sequence items
+	ADC1->SQR3 |= (4 & ADC_SQR3_SQ1); //set ch 4 to be first conversion
+
+	//read out if some crap in there already. It appears this is essential
+	voltCalc = (ADC1->DR)&0xFFFF; // only lower half of 32bit register
+
+	//perform conversion on ADC1 (master)
+	ADC1->CR2 |= (ADC_CR2_EXTSEL_2 | ADC_CR2_EXTSEL_1 | ADC_CR2_EXTSEL_0); //set trigger to be SW
+	ADC1->CR2 |= (ADC_CR2_SWSTART); //set SWSTART bit
+	ADC1->CR2 |= (ADC_CR2_ADON); //set ADON bit
+
+
+	//wait for conversion to finish
+	while(!(ADC1->SR & ADC_SR_EOC)); // todo: add timeout
+
+	voltCalc = (ADC1->DR)&0xFFFF; // only lower half of 32bit register
+
+	// convert bits to mV
+	// adc vref is 3300mV
+	// voltdiv has upper 10k, lower 2k2 (22 / 122 = 11 / 61)
+
+	voltCalc = voltCalc * 61 * 3300; // voltCalc can be up to 21336 for OK calc. Above range of 12bit in with 32bit, all ok
+	voltCalc = voltCalc / (11 * 0xFFF);
+
+	*volt = voltCalc;
+
+	return 0;
+}
+
 void eternalRPM_VSS_monitor(){
 	// loop monitoring VSS and RPM
 
@@ -766,23 +856,32 @@ int main(int argc, char* argv[])
   while (1)
     {
 	  get_batteryvolt(&carData_latest.batteryValue);
+	  get_enginetemp(&carData_latest.tempVoltage);
+	  get_fuel(&carData_latest.fuelVoltage);
 	  if(carData_previousPrinted.RPMvalue != carData_latest.RPMvalue){
 		  UART_sendint(USB_UART, HAL_GetTick());
 
 		  UART_sendstring(USB_UART, ";RPM:");
-	  UART_sendint(USB_UART, carData_latest.RPMvalue);
+		  UART_sendint(USB_UART, carData_latest.RPMvalue);
 
-	  UART_sendstring(USB_UART, ";VSS:");
-	  UART_sendint(USB_UART, carData_latest.VSSvalue);
+		  UART_sendstring(USB_UART, ";VSS:");
+		  UART_sendint(USB_UART, carData_latest.VSSvalue);
 
-	  UART_sendstring(USB_UART, ";RTO:");
-	 	  UART_sendint(USB_UART, (carData_latest.RPMvalue * 1000) /carData_latest.VSSvalue);
+		  carData_latest.rpmVssRatio = carData_latest.RPMcounter * 1000 / carData_latest.VSScounter;
+		  UART_sendstring(USB_UART, ";RTO:");
+		  UART_sendint(USB_UART, carData_latest.rpmVssRatio);
 
-	 	 UART_sendstring(USB_UART, ";BAT:");
-	 	 	 	  UART_sendint(USB_UART, carData_latest.batteryValue);
+		  UART_sendstring(USB_UART, ";BAT:");
+		  UART_sendint(USB_UART, carData_latest.batteryValue);
 
-	 	  UART_sendstring(USB_UART, "\r\n");
-	 	 carData_previousPrinted = carData_latest;
+		  UART_sendstring(USB_UART, ";TMP:");
+		  UART_sendint(USB_UART, carData_latest.tempVoltage);
+
+		  UART_sendstring(USB_UART, ";FUL:");
+		  UART_sendint(USB_UART, carData_latest.fuelVoltage);
+
+		  UART_sendstring(USB_UART, "\r\n");
+		  carData_previousPrinted = carData_latest;
 	  }
 
 
@@ -815,7 +914,7 @@ void EXTI9_5_IRQHandler(void){
 	GPIO_WriteBit(GPIOC, GPIO_Pin_13, 0); // LED on
 	if(EXTI_GetITStatus(EXTI_Line5)!=RESET) //Judge whether a line break
 	{
-		// tacho intterupt
+		// tacho interrupt
 		carData_latest.RPMcounter = TIM2->CNT;
 		// set register value to 0 to measure for next pulse
 		TIM_SetCounter(TIM2, 0);
