@@ -77,7 +77,7 @@
 //#define FAKE_RESULTS //for debugging purposes, returns some random values
 //#define USBUART_EVENPARITY //if commented out, even parity disabled (no parity used)
 
-USART_TypeDef *USB_UART = USART1; //see comment on next line.
+USART_TypeDef *CONF_UART = USART1; //see comment on next line.
 //USART_TypeDef *TIM_TACHO = TIM2; //unused cause RCC periph clock enable crap. Actually USART has that too. Would be neat to redefine that too?
 //USART_TypeDef *TIM_VSS = TIM3;
 
@@ -101,9 +101,9 @@ bool init_uart_usb(){
 	USB_UART_Clock.USART_CPOL = USART_CPOL_Low;
 	USB_UART_Clock.USART_CPHA = USART_CPHA_1Edge;
 	USB_UART_Clock.USART_LastBit = USART_LastBit_Disable;
-	USART_ClockInit(USB_UART, &USB_UART_Clock);
+	USART_ClockInit(CONF_UART, &USB_UART_Clock);
 
-	USART_Cmd(USB_UART, ENABLE);
+	USART_Cmd(CONF_UART, ENABLE);
 
 	//__GPIOA_CLK_ENABLE();
 	//	__GPIOB_CLK_ENABLE();
@@ -131,7 +131,7 @@ bool init_uart_usb(){
 		USB_UART_Init.USART_StopBits = USART_StopBits_1;
 		USB_UART_Init.USART_Mode = USART_Mode_Rx | USART_Mode_Tx;
 		USB_UART_Init.USART_HardwareFlowControl = USART_HardwareFlowControl_None;
-		USART_Init(USB_UART, &USB_UART_Init);
+		USART_Init(CONF_UART, &USB_UART_Init);
 
 //		if(HAL_UART_Init(&USB_UART) != HAL_OK)
 //		{
@@ -197,14 +197,14 @@ bool UART_sendint(USART_TypeDef *UARTx, uint32_t value){
 
 
 void checkForUpdateRequest(){
-	UART_sendstring(USB_UART, "\r\nPress b to enter emb. bootloader... ");
+	UART_sendstring(CONF_UART, "\r\nPress b to enter emb. bootloader... ");
 	const uint32_t timeToEnter = 1000;
 	char lastUARTchar;
 	uint32_t timestamp = HAL_GetTick();
 
 	while((HAL_GetTick() - timestamp) <= timeToEnter){
-		if(USB_UART->SR & USART_SR_RXNE){ //has data
-			lastUARTchar = USB_UART->DR;
+		if(CONF_UART->SR & USART_SR_RXNE){ //has data
+			lastUARTchar = CONF_UART->DR;
 			if(lastUARTchar == 'b'){ //check if right character
 				//enter embedded bootloader!
 
@@ -215,13 +215,13 @@ void checkForUpdateRequest(){
 				// turns out that tutorial is useless for me, it required boot bits (not available for stm32f1)
 				// Much better were instructions where they mention doing it with backup registers and reset
 
-				UART_sendstring(USB_UART, "Entering in 3 sec ");
+				UART_sendstring(CONF_UART, "Entering in 3 sec ");
 				timer_sleep(1000);
-				UART_sendstring(USB_UART, ".");
+				UART_sendstring(CONF_UART, ".");
 				timer_sleep(1000);
-				UART_sendstring(USB_UART, ".");
+				UART_sendstring(CONF_UART, ".");
 				timer_sleep(1000);
-				UART_sendstring(USB_UART, ".\r\n");
+				UART_sendstring(CONF_UART, ".\r\n");
 
 				//start of alternative try
 				/*void (*SysMemBootJump)(void);
@@ -288,7 +288,7 @@ void checkForUpdateRequest(){
 		}
 	}
 
-	UART_sendstring(USB_UART, "\r\nLoading app.\r\n");
+	UART_sendstring(CONF_UART, "\r\nLoading app.\r\n");
 	return;
 }
 
@@ -314,7 +314,7 @@ void eternalUSBUART_loopback(){
 	//uint16_t uartchar16;
 	//char uartchar;
 
-	UART_sendstring(USB_UART, "Loopback\r\n");
+	UART_sendstring(CONF_UART, "Loopback\r\n");
 
 //	USART_SendData(USB_UART, 'L');
 //	while(!(USB_UART->SR & USART_SR_TXE));
@@ -352,11 +352,11 @@ void eternalUSBUART_loopback(){
 			//UART_sendstring(USB_UART, "\r\n");
 		}
 
-		if(USB_UART->SR & USART_SR_RXNE){ //has data
+		if(CONF_UART->SR & USART_SR_RXNE){ //has data
 			//uartchar16 = USB_UART->DR;
 			//uartchar = uartchar16 & 0xFF;
 			//USART_SendData(USB_UART, uartchar16); //send it back
-			USART_SendData(USB_UART, USB_UART->DR); //send it back
+			USART_SendData(CONF_UART, CONF_UART->DR); //send it back
 		}
 	}
 
@@ -759,7 +759,7 @@ void eternalRPM_VSS_monitor(){
 	bool vssReported=1; //1 cause they are high idle
 	bool rpmReported=1; //1 cause they are high idle
 
-	UART_sendstring(USB_UART, "VSS&RPM monitor loop start\r\n");
+	UART_sendstring(CONF_UART, "VSS&RPM monitor loop start\r\n");
 
 	while(1){
 		if(GPIO_ReadInputDataBit(GPIOB, GPIO_Pin_4)){
@@ -767,8 +767,8 @@ void eternalRPM_VSS_monitor(){
 			if (vssReported == 0) {
 				vssReported = 1;
 				//send UART
-				UART_sendint(USB_UART, HAL_GetTick());
-				UART_sendstring(USB_UART, " VSS\r\n");
+				UART_sendint(CONF_UART, HAL_GetTick());
+				UART_sendstring(CONF_UART, " VSS\r\n");
 			}
 		} else {
 			//vss low
@@ -782,8 +782,8 @@ void eternalRPM_VSS_monitor(){
 			if (rpmReported == 0) {
 				rpmReported = 1;
 				//send UART
-				UART_sendint(USB_UART, HAL_GetTick());
-				UART_sendstring(USB_UART, " RPM\r\n");
+				UART_sendint(CONF_UART, HAL_GetTick());
+				UART_sendstring(CONF_UART, " RPM\r\n");
 			}
 		} else {
 			//rpm low
@@ -831,11 +831,11 @@ int main(int argc, char* argv[])
 	GPIO_WriteBit(GPIOC, GPIO_Pin_13, 1); // LED off
 
 	if(get_batteryvolt(&batteryVoltage_mV)){
-		UART_sendstring(USB_UART, "Failed to get batteryvolt\r\n");
+		UART_sendstring(CONF_UART, "Failed to get batteryvolt\r\n");
 	} else {
-		UART_sendstring(USB_UART, "Batteryvolt: ");
-		UART_sendint(USB_UART, batteryVoltage_mV);
-		UART_sendstring(USB_UART, " mV\r\n");
+		UART_sendstring(CONF_UART, "Batteryvolt: ");
+		UART_sendint(CONF_UART, batteryVoltage_mV);
+		UART_sendstring(CONF_UART, " mV\r\n");
 	}
 
 
@@ -859,28 +859,29 @@ int main(int argc, char* argv[])
 	  get_enginetemp(&carData_latest.tempVoltage);
 	  get_fuel(&carData_latest.fuelVoltage);
 	  if(carData_previousPrinted.RPMvalue != carData_latest.RPMvalue){
-		  UART_sendint(USB_UART, HAL_GetTick());
+		  UART_sendint(CONF_UART, HAL_GetTick());
 
-		  UART_sendstring(USB_UART, ";RPM:");
-		  UART_sendint(USB_UART, carData_latest.RPMvalue);
+		  UART_sendstring(CONF_UART, ";RPM:");
+		  UART_sendint(CONF_UART, carData_latest.RPMvalue);
 
-		  UART_sendstring(USB_UART, ";VSS:");
-		  UART_sendint(USB_UART, carData_latest.VSSvalue);
+		  UART_sendstring(CONF_UART, ";VSS:");
+		  UART_sendint(CONF_UART, carData_latest.VSSvalue);
 
-		  carData_latest.rpmVssRatio = carData_latest.RPMcounter * 1000 / carData_latest.VSScounter;
-		  UART_sendstring(USB_UART, ";RTO:");
-		  UART_sendint(USB_UART, carData_latest.rpmVssRatio);
+		  if (carData_latest.VSScounter == 0) carData_latest.rpmVssRatio = 1; // protect from div w/ zero
+		  else carData_latest.rpmVssRatio = carData_latest.RPMcounter * 1000 / carData_latest.VSScounter;
+		  UART_sendstring(CONF_UART, ";RTO:");
+		  UART_sendint(CONF_UART, carData_latest.rpmVssRatio);
 
-		  UART_sendstring(USB_UART, ";BAT:");
-		  UART_sendint(USB_UART, carData_latest.batteryValue);
+		  UART_sendstring(CONF_UART, ";BAT:");
+		  UART_sendint(CONF_UART, carData_latest.batteryValue);
 
-		  UART_sendstring(USB_UART, ";TMP:");
-		  UART_sendint(USB_UART, carData_latest.tempVoltage);
+		  UART_sendstring(CONF_UART, ";TMP:");
+		  UART_sendint(CONF_UART, carData_latest.tempVoltage);
 
-		  UART_sendstring(USB_UART, ";FUL:");
-		  UART_sendint(USB_UART, carData_latest.fuelVoltage);
+		  UART_sendstring(CONF_UART, ";FUL:");
+		  UART_sendint(CONF_UART, carData_latest.fuelVoltage);
 
-		  UART_sendstring(USB_UART, "\r\n");
+		  UART_sendstring(CONF_UART, "\r\n");
 		  carData_previousPrinted = carData_latest;
 	  }
 

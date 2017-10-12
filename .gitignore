@@ -4,4 +4,6 @@
 *.o
 *.prefs
 *.map
-*.ld
+/Debug/
+*.xml
+*.mk
