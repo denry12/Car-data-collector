@@ -837,7 +837,20 @@ int main(int argc, char* argv[])
 		UART_sendint(CONF_UART, batteryVoltage_mV);
 		UART_sendstring(CONF_UART, " mV\r\n");
 	}
-
+	if(get_enginetemp(&carData_latest.tempVoltage)){
+		UART_sendstring(CONF_UART, "Failed to get tempVoltage\r\n");
+	} else {
+		UART_sendstring(CONF_UART, "Tempvolt: ");
+		UART_sendint(CONF_UART, carData_latest.batteryValue);
+		UART_sendstring(CONF_UART, " mV\r\n");
+	}
+	if(get_fuel(&carData_latest.fuelVoltage)){
+		UART_sendstring(CONF_UART, "Failed to get fuelVoltage\r\n");
+	} else {
+		UART_sendstring(CONF_UART, "Fuelvolt: ");
+		UART_sendint(CONF_UART, carData_latest.batteryValue);
+		UART_sendstring(CONF_UART, " mV\r\n");
+	}
 
 	//eternalRPM_VSS_monitor();
 
